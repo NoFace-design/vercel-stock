@@ -2,6 +2,6 @@ fastapi
 httpx
 feedparser
 yfinance
-numpy<2
-pandas<2.3
-pandas-ta==0.3.14b0
+numpy>=1.26.0
+pandas>=2.2.0
+pandas-ta-classic
