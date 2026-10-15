@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Trading Intelligence Dashboard</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+body{background:radial-gradient(circle at 20% 10%,#1e1b4b,#0b1020 50%,#020617);min-height:100vh;color:#e2e8f0}
+.glass{background:rgba(255,255,255,.06);backdrop-filter:blur(14px);border:1px solid rgba(255,255,255,.12);border-radius:1rem}
+@media(max-width:1023px){[data-tab]{display:none!important}[data-tab=signal].on{display:grid!important}[data-tab=signalb].on{display:block!important}[data-tab=chart].on{display:block!important}[data-tab=news].on{display:flex!important}}
+</style></head>
+<body class="flex flex-col lg:flex-row gap-4 p-3 pb-24 lg:p-4">
+<aside class="glass p-2 lg:p-3 lg:w-48 shrink-0 sticky top-0 z-20 lg:static lg:self-start">
+  <h1 class="hidden lg:block font-bold mb-2">Watchlist</h1>
+  <div id="wl" class="flex lg:flex-col gap-2 overflow-x-auto"></div>
+</aside>
+<main class="flex-1 min-w-0 space-y-4">
+  <div class="flex flex-wrap items-center gap-2">
+    <h2 id="title" class="text-2xl font-bold mr-4"></h2>
+    <div id="tfs" class="flex gap-1"></div>
+    <span id="tick" class="text-xs text-emerald-400"></span><span id="meta" class="text-xs text-slate-400 ml-auto"></span>
+  </div>
+  <div id="err" class="hidden glass p-3 text-red-300"></div>
+  <div data-tab="signal" class="grid lg:grid-cols-3 gap-4">
+    <div id="verdict" class="glass p-5 text-center flex flex-col justify-center lg:col-span-1">
+      <div id="vtxt" class="text-2xl font-extrabold">Loading…</div>
+      <div id="vsub" class="text-sm mt-2 text-slate-300"></div>
+    </div>
+    <div class="glass p-4 lg:col-span-1 text-center">
+      <svg viewBox="0 0 200 115" class="w-full max-w-xs mx-auto">
+        <path d="M10 100 A90 90 0 0 1 190 100" fill="none" stroke="#ef4444" stroke-width="16" stroke-linecap="round"/>
+        <path id="arc" d="M10 100 A90 90 0 0 1 190 100" fill="none" stroke="#22c55e" stroke-width="16" stroke-linecap="round" stroke-dasharray="0 283"/>
+        <text id="pct" x="100" y="95" text-anchor="middle" fill="white" font-size="28" font-weight="700">–</text>
+      </svg>
+      <div class="flex justify-between text-sm px-4"><span class="text-green-400" id="up"></span><span class="text-red-400" id="dn"></span></div>
+      <div class="text-xs text-slate-400 mt-2" id="parts"></div>
+    </div>
+    <div class="grid gap-3 lg:col-span-1">
+      <div class="glass p-3 border-l-4 border-green-500"><div class="text-xs text-slate-400">Target Accumulation / Buy Range</div><div id="buy" class="text-xl font-bold text-green-400">–</div></div>
+      <div class="glass p-3 border-l-4 border-sky-400"><div class="text-xs text-slate-400">Upward Target / Take Profit</div><div id="tp" class="text-xl font-bold text-sky-300">–</div></div>
+      <div class="glass p-3 border-l-4 border-red-500"><div class="text-xs text-slate-400">Downward Risk / Stop Level</div><div id="stop" class="text-xl font-bold text-red-400">–</div></div>
+    </div>
+  </div>
+  <div class="grid lg:grid-cols-3 gap-4">
+    <div data-tab="chart" class="glass p-2 lg:col-span-2 h-[65vh] lg:h-[480px]" id="chart"></div>
+    <div data-tab="news" class="glass p-3 h-[70vh] lg:h-[480px] flex flex-col">
+      <div class="flex items-center justify-between mb-2"><h3 class="font-bold">Live News</h3>
+        <button id="scope" class="text-xs px-2 py-1 rounded bg-white/10 hover:bg-white/20"></button></div>
+      <div id="news" class="overflow-y-auto space-y-2 text-sm flex-1"></div>
+    </div>
+  </div>
+  <details data-tab="signalb" class="glass p-3 text-sm"><summary class="cursor-pointer font-semibold">Signal breakdown <span id="cnt" class="text-slate-400 font-normal"></span></summary>
+    <ul id="fired" class="mt-2 grid sm:grid-cols-2 gap-x-6 text-xs text-slate-300"></ul></details>
+  <details open data-tab="signalb" class="glass p-3 text-sm"><summary class="cursor-pointer font-semibold">Historical backtest <span id="hsub" class="text-slate-400 font-normal"></span></summary><div id="hist" class="mt-3 space-y-3 text-xs"></div></details>
+  <details data-tab="signalb" class="glass p-3 text-sm"><summary class="cursor-pointer font-semibold">News sources <span id="srcn" class="text-slate-400 font-normal"></span></summary><div id="srcs" class="mt-2 text-xs"></div></details>
+  <p class="text-xs text-slate-500">Educational tool only, not financial advice. Data via Yahoo Finance may be delayed; probabilities are heuristic, not forecasts.</p>
+</main>
+<nav id="tabs" class="lg:hidden fixed bottom-0 inset-x-0 z-30 glass rounded-none grid grid-cols-3 text-sm" style="padding-bottom:env(safe-area-inset-bottom)"></nav>
+<script>
+const TK=["NVDA","AAPL","AMZN","MU","AVGO","TSM","INTC","META","MSFT","AMD","TSLA"],TFS=["15M","1H","4H","1D"];
+const TVI={"15M":"15","1H":"60","4H":"240","1D":"D"},sym=t=>(t==="TSM"?"NYSE:":"NASDAQ:")+t;
+const COL={green:["bg-green-600/70","border-green-400"],red:["bg-red-600/70","border-red-400"],yellow:["bg-yellow-500/70","border-yellow-300"]};
+let cur="NVDA",tf="1D",all=false,reqId=0;
+const $=id=>document.getElementById(id),f=a=>"$"+a.toFixed(2);
+function btn(txt,on,fn){const b=document.createElement("button");b.textContent=txt;
+  b.className="px-3 py-1 rounded-lg text-sm shrink-0 "+(on?"bg-indigo-500 text-white":"bg-white/10 hover:bg-white/20");b.onclick=fn;return b}
+function menus(){const w=$("wl");w.innerHTML="";TK.forEach(t=>w.appendChild(btn(t,t===cur,()=>{cur=t;refresh()})));
+  const s=$("tfs");s.innerHTML="";TFS.forEach(x=>s.appendChild(btn(x,x===tf,()=>{tf=x;refresh()})));
+  $("title").textContent=cur;$("scope").textContent=all?"Market-wide":cur+" only"}
+function chart(){const c=$("chart");c.innerHTML='<div class="tradingview-widget-container" style="height:100%"><div class="tradingview-widget-container__widget" style="height:100%"></div></div>';
+  const s=document.createElement("script");s.src="https://s3.tradingview.com/external-embedding/embed-widget-advanced-chart.js";s.async=true;
+  s.textContent=JSON.stringify({autosize:true,symbol:sym(cur),interval:TVI[tf],theme:"dark",style:"1",locale:"en",backgroundColor:"rgba(0,0,0,0)",allow_symbol_change:false,hide_side_toolbar:false});
+  c.firstChild.appendChild(s)}
+async function loadAnalysis(){const id=++reqId;$("err").classList.add("hidden");
+  try{const r=await fetch(`/api/analysis/${cur}?tf=${tf}`);if(!r.ok)throw new Error((await r.json()).detail||r.status);
+    const d=await r.json();if(id!==reqId)return;
+    const [bg,bd]=COL[d.color];$("verdict").className=`glass p-5 text-center flex flex-col justify-center lg:col-span-1 border-2 ${bg} ${bd}`;
+    $("vtxt").textContent=d.verdict;$("vsub").textContent=`${cur} @ ${f(d.price)} · ${tf} · ATR ${f(d.atr)}`;
+    $("arc").setAttribute("stroke-dasharray",`${d.prob_up/100*283} 283`);$("pct").textContent=d.prob_up.toFixed(0)+"%";
+    $("up").textContent=`${d.prob_up}% Upward`;$("dn").textContent=`${d.prob_down}% Downside risk`;
+    $("parts").textContent=`Technical ${d.tech_score}% · News ${d.news_score>=0?"+":""}${d.news_score} (${d.news_count} headlines) · History ${d.hist_prob==null?"n/a":d.hist_prob+"%"}`;
+    $("buy").textContent=`${f(d.targets.buy[0])} – ${f(d.targets.buy[1])}`;
+    $("tp").textContent=`${f(d.targets.take_profit[0])} – ${f(d.targets.take_profit[1])}`;
+    $("stop").textContent=f(d.targets.stop);
+    $("meta").textContent=`Support ${f(d.targets.support)} · Resistance ${f(d.targets.resistance)} · bar ${d.asof.slice(0,16)}`;
+    const c=d.counts;$("cnt").textContent=`— ${c.scanned} scanned: ${c.bullish} bull / ${c.bearish} bear / ${c.neutral} neutral`;
+    renderHist(d.history);$("fired").innerHTML="";d.fired.forEach(x=>{const li=document.createElement("li");li.textContent=x;$("fired").appendChild(li)});
+  }catch(e){if(id!==reqId)return;$("err").textContent="Analysis failed: "+e.message;$("err").classList.remove("hidden")}}
+const el=(t,c,x)=>{const e=document.createElement(t);if(c)e.className=c;if(x!=null)e.textContent=x;return e},N=x=>x==null?"–":x,sg=x=>x>=0?"+"+x:""+x;
+function renderHist(h){const box=$("hist");box.innerHTML="";
+  if(!h||h.error){$("hsub").textContent="";box.textContent="History unavailable: "+((h&&h.error)||"no data");return}
+  $("hsub").textContent=`— ${h.years} years, ${h.bars} daily bars since ${h.from}`;
+  const sec=t=>{const d=el("div");d.appendChild(el("div","font-semibold text-slate-200 mb-1",t));box.appendChild(d);return d},L=(d,x)=>d.appendChild(el("div","text-slate-300",x));
+  let d=sec(`Similar-setup study (daily score now ${h.score_now}; baseline: ${N(h.base_up10)}% of all 10-day windows went up)`);
+  h.analogs.forEach(a=>L(d,`${a.h}-day: ${N(a.up)}% went up · avg ${sg(N(a.avg))}% · range ${N(a.p5)}% to ${N(a.p95)}% · ${a.n} similar days`));
+  d=sec("Indicators firing now, and how often they were right on this stock (10-day)");
+  h.reliability.forEach(r=>L(d,`${r.name} ${r.dir}: right ${N(r.hit)}% of ${r.n} times · avg move ${sg(N(r.avg))}%`));
+  d=sec("Risk profile");L(d,`Volatility ${N(h.vol)}%/yr · max drawdown ${N(h.maxdd)}% · now ${N(h.now_dd)}% from peak · best day ${sg(N(h.best_day))}% · worst day ${N(h.worst_day)}%`);
+  d=sec("Seasonality");L(d,`${h.month.m}: avg ${sg(N(h.month.avg))}%, up ${N(h.month.up)}% of ${h.month.n} past Mays-style months`.replace("Mays-style ",""));
+  d=sec("Yearly returns");const w=el("div","flex flex-wrap gap-1");h.yearly.forEach(y=>w.appendChild(el("span","px-2 py-0.5 rounded "+(y.r>=0?"bg-green-700/50":"bg-red-700/50"),`${y.y}: ${sg(N(y.r))}%`)));d.appendChild(w);
+  d=sec("News tone vs later price (GDELT, past year, best-effort)");
+  if(h.news)L(d,`${h.news.days} days · correlation ${N(h.news.corr)} · up in 5d after positive-tone days: ${N(h.news.up_pos)}% vs after negative-tone days: ${N(h.news.up_neg)}% · tone vs 30d avg now: ${sg(N(h.news.tone_now))}`);
+  else L(d,"Unavailable (GDELT did not respond).")}
+async function loadNews(){try{const r=await fetch("/api/news"+(all?"":"?ticker="+cur));const items=await r.json();const box=$("news");box.innerHTML="";
+  if(!items.length){box.textContent="No matching headlines yet (feeds refresh every 30s).";return}
+  const B={Positive:"bg-green-600/60",Negative:"bg-red-600/60",Neutral:"bg-slate-600/60"};
+  items.forEach(i=>{const d=document.createElement("div");d.className="p-2 rounded-lg bg-white/5";
+    const top=document.createElement("div");top.className="flex items-center gap-2 text-xs mb-1";
+    const src=document.createElement("span");src.className="font-semibold text-indigo-300";src.textContent=`[${i.source}]`;
+    const bd=document.createElement("span");bd.className=`px-2 rounded-full ${B[i.label]}`;bd.textContent=i.label;
+    const tm=document.createElement("span");tm.className="ml-auto text-slate-500";tm.textContent=new Date(i.ts*1000).toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"});
+    top.append(src,bd,tm);const a=document.createElement(/^https?:/.test(i.link)?"a":"span");
+    if(a.tagName==="A"){a.href=i.link;a.target="_blank";a.rel="noopener"}a.className="hover:underline";a.textContent=i.title;d.append(top,a);box.appendChild(d)})}catch(e){}}
+$("scope").onclick=()=>{all=!all;menus();loadNews()};
+function refresh(){menus();chart();$("news").textContent="Fetching the latest headlines…";nextAt=Date.now()+30000;loadAnalysis();loadNews()}
+const TABS={signal:["signal","signalb"],chart:["chart"],news:["news"]},TL={signal:"Signal",chart:"Chart",news:"News"};
+function setTab(n){document.querySelectorAll("[data-tab]").forEach(e=>e.classList.toggle("on",TABS[n].includes(e.dataset.tab)));
+  const nv=$("tabs");nv.innerHTML="";Object.keys(TL).forEach(k=>{const b=document.createElement("button");b.textContent=TL[k];
+    b.className="py-3 "+(k===n?"text-indigo-300 font-bold":"text-slate-400");b.onclick=()=>{setTab(k);if(k==="chart")chart()};nv.appendChild(b)})}
+async function loadSources(){try{const s=await(await fetch("/api/sources")).json();$("srcn").textContent=`— ${s.filter(x=>x.ok).length}/${s.length} responding`;
+  const box=$("srcs");box.innerHTML="";const by={};s.forEach(x=>(by[x.region]=by[x.region]||[]).push(x));
+  Object.keys(by).forEach(rg=>{const d=document.createElement("div");const t=document.createElement("div");t.className="text-slate-400 mt-2";t.textContent=rg;d.appendChild(t);
+    by[rg].forEach(x=>{const sp=document.createElement("span");sp.className="inline-block mr-3";sp.textContent=(x.ok?"🟢 ":"🔴 ")+x.name;d.appendChild(sp)});box.appendChild(d)})}catch(e){}}
+setTab("signal");setTimeout(loadSources,15000);setInterval(loadSources,60000);
+let nextAt=0;
+function cycle(){nextAt=Date.now()+30000;loadNews();loadAnalysis()}
+setInterval(()=>{if(document.hidden)return;const s=Math.max(0,Math.round((nextAt-Date.now())/1000));$("tick").textContent=`● Live · next refresh in ${s}s`;if(s<=0)cycle()},1000);
+document.addEventListener("visibilitychange",()=>{if(!document.hidden)cycle()});
+refresh();
+</script></body></html>

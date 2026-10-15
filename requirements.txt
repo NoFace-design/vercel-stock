@@ -1,0 +1,7 @@
+fastapi
+httpx
+feedparser
+yfinance
+numpy<2
+pandas<2.3
+pandas-ta==0.3.14b0
